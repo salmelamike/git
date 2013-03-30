@@ -1,0 +1,26 @@
+* Sat Jun 23 2012 David Greaves <david@dgreaves.com> - 1.7.10.3-2
+ - Restore rsync Requires now we have rsync
+
+* Thu Jun 07 2012 David Greaves <david@dgreaves.com> - 1.7.10.3
+ - New upstream
+
+* Wed May 21 2012 David Greaves <david@dgreaves.com> - 1.7.2.2
+- Remove rsync Requires - we'd like to Suggest: or Recommend: it but meh, our rpm doesn't do that
+- Make the python macros version independent
+
+* Wed Jan 19 2011 Jenny Lin <jenny.lin@intel.com> - 1.7.2.2
+- Add patch to fix CVE-2010-3906(BMC#12222).
+
+* Mon Sep 13 2010 Chris E Ferron <chris.e.ferron@intel.com> - 1.7.2.2
+- updated version to 1.7.2.2 from upstream. 
+- BMC#6605 
+
+* Wed Aug 25 2010 Chris E Ferron <chris.e.ferron@intel.com> - 1.6.1.3
+- apply upstream patch for CVE-2010-2542 [git] setup.c: Buffer overflow allow local users to gain privileges. BMC#5238
+
+* Tue Jun 16 2009 Passion Zhao <passion.zhao@intel.com> - 1.6.1.3-2
+- Add fix DoS issue by parsing extra arg strictly: 
+  https://www.redhat.com/archives/fedora-security-list/2009-June/msg00000.html
+
+* Fri Feb 27 2009 Zhang, Qiang Z<qiang.z.zhang@intel.com> 1.6.1.3
+- Update to 1.6.1.3
