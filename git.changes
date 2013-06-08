@@ -1,3 +1,7 @@
+* Sat Jun 08 2013 David Greaves <david@dgreaves.com> - 1.8.3-2
+- git subtree: properly handle remote refs
+   http://comments.gmane.org/gmane.comp.version-control.git/218064
+
 * Sat Jun 08 2013 David Greaves <david@dgreaves.com> - 1.8.3-1
 - New upstream
 - Packaging mods by Carsten Munk

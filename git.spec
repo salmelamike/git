@@ -3,7 +3,7 @@
 
 Name: 		git
 Version: 1.8.3
-Release: 1
+Release: 2
 Summary:  	Core git tools
 License: 	GPLv2
 Group: 		Development/Tools
@@ -11,6 +11,7 @@ URL: 		http://git-core.googlecode.com/files/
 Source:		http://git-core.googlecode.com/files/%{name}-%{version}.tar.gz
 Source1:	git.xinetd
 Source2:	git.conf.httpd
+Patch1:	0001-git-subtree-properly-handle-remote-refs.patch
 BuildRequires:	zlib-devel >= 1.2, python, openssl-devel, libcurl-devel, expat-devel, gettext %{!?_without_docs:, xmlto, asciidoc > 6.0.3}
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
@@ -104,6 +105,7 @@ Requires:      git = %{version}-%{release}, emacs-common
 # Adjusting %%setup since git-pkg unpacks to src/
 # %%setup -q
 %setup -q -n src
+%patch1 -p1
 
 %build
 make %{_smp_mflags} CFLAGS="$RPM_OPT_FLAGS" \
