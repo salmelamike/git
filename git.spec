@@ -2,8 +2,8 @@
 %define _without_docs 0
 
 Name: 		git
-Version: 	1.7.10.3
-Release: 	2
+Version: 1.8.3
+Release: 1
 Summary:  	Core git tools
 License: 	GPLv2
 Group: 		Development/Tools

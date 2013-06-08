@@ -1,3 +1,7 @@
+* Sat Jun 08 2013 David Greaves <david@dgreaves.com> - 1.8.3-1
+- New upstream
+- Packaging mods by Carsten Munk
+
 * Sat Jun 23 2012 David Greaves <david@dgreaves.com> - 1.7.10.3-2
  - Restore rsync Requires now we have rsync
 
