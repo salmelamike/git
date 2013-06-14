@@ -3,7 +3,7 @@
 
 Name: 		git
 Version: 1.8.3
-Release: 2
+Release: 3
 Summary:  	Core git tools
 License: 	GPLv2
 Group: 		Development/Tools
@@ -93,6 +93,16 @@ BuildRequires:  perl(Error), perl(ExtUtils::MakeMaker)
 %description -n perl-Git
 Perl interface to Git.
 
+%package -n perl-Git-SVN
+Summary:        Perl interface to Git::SVN
+Group:          Development/Libraries
+Requires:       git = %{version}-%{release}, perl(Error)
+Requires:       perl(:MODULE_COMPAT_%(eval "`%{__perl} -V:version`"; echo $version))
+BuildRequires:  perl(Error), perl(ExtUtils::MakeMaker)
+
+%description -n perl-Git-SVN
+Perl interface to Git::SVN.
+
 %package -n emacs-git
 Summary:       Git version control system support for Emacs
 Group:         Applications/Editors
@@ -134,7 +144,10 @@ find $RPM_BUILD_ROOT -type f -name perllocal.pod -exec rm -f {} ';'
 
 (find $RPM_BUILD_ROOT%{_bindir} -type f | grep -vE "archimport|svn|cvs|email|gitk|git-gui|git-citooli|git-daemon" | sed -e s@^$RPM_BUILD_ROOT@@)               > bin-man-doc-files
 (find $RPM_BUILD_ROOT%{_datadir}/locale -type f | sed -e s@^$RPM_BUILD_ROOT@@ -e 's/$/*/' ) >> bin-man-doc-files
-(find $RPM_BUILD_ROOT%{perl_vendorlib} -type f | sed -e s@^$RPM_BUILD_ROOT@@) >> perl-files
+(find $RPM_BUILD_ROOT%{perl_vendorlib} -type f | sed -e s@^$RPM_BUILD_ROOT@@) > perl-files
+grep SVN perl-files > perl-svn-files
+grep -v SVN perl-files > perl-git-files
+
 %if %{!?_without_docs:1}0
 (find $RPM_BUILD_ROOT%{_mandir} $RPM_BUILD_ROOT/Documentation -type f | grep -vE "email|gitk|git-gui|git-citool" | sed -e s@^$RPM_BUILD_ROOT@@ -e 's/$/*/' ) >> bin-man-doc-files
 %else
@@ -188,7 +201,10 @@ rm -rf $RPM_BUILD_ROOT
 %{!?_without_docs: %{_mandir}/man1/*gitk*.1*}
 %{!?_without_docs: %doc Documentation/*gitk*.html }
 
-%files -n perl-Git -f perl-files
+%files -n perl-Git -f perl-git-files
+%defattr(-,root,root)
+
+%files -n perl-Git-SVN -f perl-svn-files
 %defattr(-,root,root)
 
 %files daemon
