@@ -3,7 +3,7 @@
 
 Name: 		git
 Version: 1.8.3
-Release: 3
+Release: 4
 Summary:  	Core git tools
 License: 	GPLv2
 Group: 		Development/Tools
