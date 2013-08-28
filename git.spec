@@ -122,6 +122,12 @@ make %{_smp_mflags} CFLAGS="$RPM_OPT_FLAGS" \
      ETC_GITCONFIG=/etc/gitconfig \
      gitexecdir=%{_bindir} \
      prefix=%{_prefix} all %{!?_without_docs: doc}
+pushd contrib/subtree
+make %{_smp_mflags} CFLAGS="$RPM_OPT_FLAGS" \
+     ETC_GITCONFIG=/etc/gitconfig \
+     libexecdir=%{_bindir} \
+     prefix=%{_prefix} all %{!?_without_docs: doc}
+popd
 
 %install
 rm -rf $RPM_BUILD_ROOT
@@ -130,6 +136,14 @@ make %{_smp_mflags} CFLAGS="$RPM_OPT_FLAGS" DESTDIR=$RPM_BUILD_ROOT \
      ETC_GITCONFIG=/etc/gitconfig \
      gitexecdir=%{_bindir} \
      INSTALLDIRS=vendor install %{!?_without_docs: install-doc}
+pushd contrib/subtree
+make %{_smp_mflags} CFLAGS="$RPM_OPT_FLAGS" DESTDIR=$RPM_BUILD_ROOT \
+     prefix=%{_prefix} mandir=%{_mandir} \
+     ETC_GITCONFIG=/etc/gitconfig \
+     libexecdir=%{_bindir} \
+     INSTALLDIRS=vendor install %{!?_without_docs: install-doc}
+popd
+
 mkdir -p $RPM_BUILD_ROOT/%{_sysconfdir}/xinetd.d
 install -m 644 %SOURCE1 $RPM_BUILD_ROOT/%{_sysconfdir}/xinetd.d/git
 mkdir -p $RPM_BUILD_ROOT/var/www/git
