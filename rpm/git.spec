@@ -15,7 +15,7 @@ BuildRequires:	zlib-devel >= 1.2, python, openssl-devel, libcurl-devel, expat-de
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 Requires:	perl-Git = %{version}-%{release}
-Requires:	zlib >= 1.2, libcurl, less, openssh-clients, expat, perl(Error), rsync
+Requires:	zlib >= 1.2, libcurl, less, openssh-clients, expat, perl(Error)
 
 %description
 Git is a fast, scalable, distributed revision control system with an
