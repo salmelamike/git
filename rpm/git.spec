@@ -116,12 +116,14 @@ Requires:      git = %{version}-%{release}, emacs-common
 %build
 make %{_smp_mflags} CFLAGS="$RPM_OPT_FLAGS" \
      ETC_GITCONFIG=/etc/gitconfig \
+     NO_PERL_CPAN_FALLBACKS=1 \
      gitexecdir=%{_bindir} \
      prefix=%{_prefix} all %{!?_without_docs: doc}
 pushd contrib/subtree
 make %{_smp_mflags} CFLAGS="$RPM_OPT_FLAGS" \
      ETC_GITCONFIG=/etc/gitconfig \
-     libexecdir=%{_bindir} \
+     NO_PERL_CPAN_FALLBACKS=1 \
+     gitexecdir=%{_bindir} \
      prefix=%{_prefix} all %{!?_without_docs: doc}
 popd
 
@@ -130,13 +132,15 @@ rm -rf $RPM_BUILD_ROOT
 make %{_smp_mflags} CFLAGS="$RPM_OPT_FLAGS" DESTDIR=$RPM_BUILD_ROOT \
      prefix=%{_prefix} mandir=%{_mandir} \
      ETC_GITCONFIG=/etc/gitconfig \
+     NO_PERL_CPAN_FALLBACKS=1 \
      gitexecdir=%{_bindir} \
      INSTALLDIRS=vendor install %{!?_without_docs: install-doc}
 pushd contrib/subtree
 make %{_smp_mflags} CFLAGS="$RPM_OPT_FLAGS" DESTDIR=$RPM_BUILD_ROOT \
      prefix=%{_prefix} mandir=%{_mandir} \
      ETC_GITCONFIG=/etc/gitconfig \
-     libexecdir=%{_bindir} \
+     NO_PERL_CPAN_FALLBACKS=1 \
+     gitexecdir=%{_bindir} \
      INSTALLDIRS=vendor install %{!?_without_docs: install-doc}
 popd
 
@@ -154,7 +158,7 @@ find $RPM_BUILD_ROOT -type f -name perllocal.pod -exec rm -f {} ';'
 
 (find $RPM_BUILD_ROOT%{_bindir} -type f | grep -vE "archimport|svn|cvs|email|gitk|git-gui|git-citooli|git-daemon" | sed -e s@^$RPM_BUILD_ROOT@@)               > bin-man-doc-files
 (find $RPM_BUILD_ROOT%{_datadir}/locale -type f | sed -e s@^$RPM_BUILD_ROOT@@ -e 's/$/*/' ) >> bin-man-doc-files
-(find $RPM_BUILD_ROOT%{perl_vendorlib} -type f | sed -e s@^$RPM_BUILD_ROOT@@) > perl-files
+(find $RPM_BUILD_ROOT%{perl_privlib} -type f | sed -e s@^$RPM_BUILD_ROOT@@) > perl-files
 grep SVN perl-files > perl-svn-files
 grep -v SVN perl-files > perl-git-files
 
@@ -180,7 +184,7 @@ rm -rf $RPM_BUILD_ROOT
 %files -f bin-man-doc-files
 %defattr(-,root,root)
 %{_datadir}/git-core/
-%doc README COPYING Documentation/*.txt contrib/hooks
+%doc README.md COPYING Documentation/*.txt contrib/hooks
 %{!?_without_docs: %doc Documentation/*.html Documentation/docbook-xsl.css}
 %{!?_without_docs: %doc Documentation/howto Documentation/technical}
 %{_sysconfdir}/bash_completion.d
@@ -227,8 +231,6 @@ rm -rf $RPM_BUILD_ROOT
 %defattr(-,root,root)
 /var/www/git/
 %{_datadir}/gitweb/
-%{python_sitelib}/git_remote_helpers
-%{python_sitelib}/git_remote_helpers-0.1.0-*.egg-info
 
 %config(noreplace)%{_sysconfdir}/httpd/conf.d/git.conf
 
