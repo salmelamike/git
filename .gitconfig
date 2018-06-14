@@ -1,0 +1,5 @@
+# Apply this configuration with `git config --local include.path ../.gitconfig`
+
+[remote "upstream"]
+	url = git@github.com:git/git.git
+	fetch = +refs/heads/*:refs/remotes/upstream/*
