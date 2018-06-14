@@ -10,6 +10,8 @@
 use 5.008;
 use strict;
 use warnings;
+# handle ACL in file access tests
+use filetest 'access';
 use CGI qw(:standard :escapeHTML -nosticky);
 use CGI::Util qw(unescape);
 use CGI::Carp qw(fatalsToBrowser set_message);
@@ -18,7 +20,13 @@ use Fcntl ':mode';
 use File::Find qw();
 use File::Basename qw(basename);
 use Time::HiRes qw(gettimeofday tv_interval);
+use Digest::MD5 qw(md5_hex);
+
 binmode STDOUT, ':utf8';
+
+if (!defined($CGI::VERSION) || $CGI::VERSION < 4.08) {
+	eval 'sub CGI::multi_param { CGI::param(@_) }'
+}
 
 our $t0 = [ gettimeofday() ];
 our $number_of_git_cmds = 0;
@@ -84,6 +92,9 @@ our $project_maxdepth = "++GITWEB_PROJECT_MAXDEPTH++";
 
 # string of the home link on top of all pages
 our $home_link_str = "++GITWEB_HOME_LINK_STR++";
+
+# extra breadcrumbs preceding the home link
+our @extra_breadcrumbs = ();
 
 # name of your site or organization to appear in page titles
 # replace this with something more descriptive for clearer bookmarks
@@ -481,7 +492,6 @@ our %feature = (
 	# Currently available providers are gravatar and picon.
 	# If an unknown provider is specified, the feature is disabled.
 
-	# Gravatar depends on Digest::MD5.
 	# Picon currently relies on the indiana.edu database.
 
 	# To enable system wide have in $GITWEB_CONFIG
@@ -545,6 +555,20 @@ our %feature = (
 		'sub' => sub { feature_bool('remote_heads', @_) },
 		'override' => 0,
 		'default' => [0]},
+
+	# Enable showing branches under other refs in addition to heads
+
+	# To set system wide extra branch refs have in $GITWEB_CONFIG
+	# $feature{'extra-branch-refs'}{'default'} = ['dirs', 'of', 'choice'];
+	# To have project specific config enable override in $GITWEB_CONFIG
+	# $feature{'extra-branch-refs'}{'override'} = 1;
+	# and in project config gitweb.extrabranchrefs = dirs of choice
+	# Every directory is separated with whitespace.
+
+	'extra-branch-refs' => {
+		'sub' => \&feature_extra_branch_refs,
+		'override' => 0,
+		'default' => []},
 );
 
 sub gitweb_get_feature {
@@ -623,6 +647,21 @@ sub feature_avatar {
 	return @val ? @val : @_;
 }
 
+sub feature_extra_branch_refs {
+	my (@branch_refs) = @_;
+	my $values = git_get_project_config('extrabranchrefs');
+
+	if ($values) {
+		$values = config_to_multi ($values);
+		@branch_refs = ();
+		foreach my $value (@{$values}) {
+			push @branch_refs, split /\s+/, $value;
+		}
+	}
+
+	return @branch_refs;
+}
+
 # checking HEAD file with -e is fragile if the repository was
 # initialized long time ago (i.e. symlink HEAD) and was pack-ref'ed
 # and then pruned.
@@ -651,6 +690,18 @@ sub filter_snapshot_fmts {
 	@fmts = grep {
 		exists $known_snapshot_formats{$_} &&
 		!$known_snapshot_formats{$_}{'disabled'}} @fmts;
+}
+
+sub filter_and_validate_refs {
+	my @refs = @_;
+	my %unique_refs = ();
+
+	foreach my $ref (@refs) {
+		die_error(500, "Invalid ref '$ref' in 'extra-branch-refs' feature") unless (is_valid_ref_format($ref));
+		# 'heads' are added implicitly in get_branch_refs().
+		$unique_refs{$ref} = 1 if ($ref ne 'heads');
+	}
+	return sort keys %unique_refs;
 }
 
 # If it is set to code reference, it is code that it is to be run once per
@@ -827,7 +878,7 @@ sub evaluate_query_params {
 
 	while (my ($name, $symbol) = each %cgi_param_mapping) {
 		if ($symbol eq 'opt') {
-			$input_params{$name} = [ map { decode_utf8($_) } $cgi->param($symbol) ];
+			$input_params{$name} = [ map { decode_utf8($_) } $cgi->multi_param($symbol) ];
 		} else {
 			$input_params{$name} = decode_utf8($cgi->param($symbol));
 		}
@@ -991,7 +1042,7 @@ our ($action, $project, $file_name, $file_parent, $hash, $hash_parent, $hash_bas
 sub evaluate_and_validate_params {
 	our $action = $input_params{'action'};
 	if (defined $action) {
-		if (!validate_action($action)) {
+		if (!is_valid_action($action)) {
 			die_error(400, "Invalid action parameter");
 		}
 	}
@@ -999,7 +1050,7 @@ sub evaluate_and_validate_params {
 	# parameters which are pathnames
 	our $project = $input_params{'project'};
 	if (defined $project) {
-		if (!validate_project($project)) {
+		if (!is_valid_project($project)) {
 			undef $project;
 			die_error(404, "No such project");
 		}
@@ -1007,21 +1058,21 @@ sub evaluate_and_validate_params {
 
 	our $project_filter = $input_params{'project_filter'};
 	if (defined $project_filter) {
-		if (!validate_pathname($project_filter)) {
+		if (!is_valid_pathname($project_filter)) {
 			die_error(404, "Invalid project_filter parameter");
 		}
 	}
 
 	our $file_name = $input_params{'file_name'};
 	if (defined $file_name) {
-		if (!validate_pathname($file_name)) {
+		if (!is_valid_pathname($file_name)) {
 			die_error(400, "Invalid file parameter");
 		}
 	}
 
 	our $file_parent = $input_params{'file_parent'};
 	if (defined $file_parent) {
-		if (!validate_pathname($file_parent)) {
+		if (!is_valid_pathname($file_parent)) {
 			die_error(400, "Invalid file parent parameter");
 		}
 	}
@@ -1029,21 +1080,21 @@ sub evaluate_and_validate_params {
 	# parameters which are refnames
 	our $hash = $input_params{'hash'};
 	if (defined $hash) {
-		if (!validate_refname($hash)) {
+		if (!is_valid_refname($hash)) {
 			die_error(400, "Invalid hash parameter");
 		}
 	}
 
 	our $hash_parent = $input_params{'hash_parent'};
 	if (defined $hash_parent) {
-		if (!validate_refname($hash_parent)) {
+		if (!is_valid_refname($hash_parent)) {
 			die_error(400, "Invalid hash parent parameter");
 		}
 	}
 
 	our $hash_base = $input_params{'hash_base'};
 	if (defined $hash_base) {
-		if (!validate_refname($hash_base)) {
+		if (!is_valid_refname($hash_base)) {
 			die_error(400, "Invalid hash base parameter");
 		}
 	}
@@ -1063,7 +1114,7 @@ sub evaluate_and_validate_params {
 
 	our $hash_parent_base = $input_params{'hash_parent_base'};
 	if (defined $hash_parent_base) {
-		if (!validate_refname($hash_parent_base)) {
+		if (!is_valid_refname($hash_parent_base)) {
 			die_error(400, "Invalid hash parent base parameter");
 		}
 	}
@@ -1086,7 +1137,7 @@ sub evaluate_and_validate_params {
 	our $search_use_regexp = $input_params{'search_use_regexp'};
 
 	our $searchtext = $input_params{'searchtext'};
-	our $search_regexp;
+	our $search_regexp = undef;
 	if (defined $searchtext) {
 		if (length($searchtext) < 2) {
 			die_error(403, "At least two characters are required for search parameter");
@@ -1110,24 +1161,21 @@ sub evaluate_git_dir {
 	our $git_dir = "$projectroot/$project" if $project;
 }
 
-our (@snapshot_fmts, $git_avatar);
+our (@snapshot_fmts, $git_avatar, @extra_branch_refs);
 sub configure_gitweb_features {
 	# list of supported snapshot formats
 	our @snapshot_fmts = gitweb_get_feature('snapshot');
 	@snapshot_fmts = filter_snapshot_fmts(@snapshot_fmts);
 
-	# check that the avatar feature is set to a known provider name,
-	# and for each provider check if the dependencies are satisfied.
-	# if the provider name is invalid or the dependencies are not met,
-	# reset $git_avatar to the empty string.
 	our ($git_avatar) = gitweb_get_feature('avatar');
-	if ($git_avatar eq 'gravatar') {
-		$git_avatar = '' unless (eval { require Digest::MD5; 1; });
-	} elsif ($git_avatar eq 'picon') {
-		# no dependencies
-	} else {
-		$git_avatar = '';
-	}
+	$git_avatar = '' unless $git_avatar =~ /^(?:gravatar|picon)$/s;
+
+	our @extra_branch_refs = gitweb_get_feature('extra-branch-refs');
+	@extra_branch_refs = filter_and_validate_refs (@extra_branch_refs);
+}
+
+sub get_branch_refs {
+	return ('heads', @extra_branch_refs);
 }
 
 # custom error handler: 'die <message>' is Internal Server Error
@@ -1415,28 +1463,31 @@ sub href {
 ## ======================================================================
 ## validation, quoting/unquoting and escaping
 
-sub validate_action {
-	my $input = shift || return undef;
+sub is_valid_action {
+	my $input = shift;
 	return undef unless exists $actions{$input};
-	return $input;
+	return 1;
 }
 
-sub validate_project {
-	my $input = shift || return undef;
-	if (!validate_pathname($input) ||
+sub is_valid_project {
+	my $input = shift;
+
+	return unless defined $input;
+	if (!is_valid_pathname($input) ||
 		!(-d "$projectroot/$input") ||
 		!check_export_ok("$projectroot/$input") ||
 		($strict_export && !project_in_list($input))) {
 		return undef;
 	} else {
-		return $input;
+		return 1;
 	}
 }
 
-sub validate_pathname {
-	my $input = shift || return undef;
+sub is_valid_pathname {
+	my $input = shift;
 
-	# no '.' or '..' as elements of path, i.e. no '.' nor '..'
+	return undef unless defined $input;
+	# no '.' or '..' as elements of path, i.e. no '.' or '..'
 	# at the beginning, at the end, and between slashes.
 	# also this catches doubled slashes
 	if ($input =~ m!(^|/)(|\.|\.\.)(/|$)!) {
@@ -1446,24 +1497,33 @@ sub validate_pathname {
 	if ($input =~ m!\0!) {
 		return undef;
 	}
-	return $input;
+	return 1;
 }
 
-sub validate_refname {
-	my $input = shift || return undef;
+sub is_valid_ref_format {
+	my $input = shift;
 
-	# textual hashes are O.K.
-	if ($input =~ m/^[0-9a-fA-F]{40}$/) {
-		return $input;
-	}
-	# it must be correct pathname
-	$input = validate_pathname($input)
-		or return undef;
+	return undef unless defined $input;
 	# restrictions on ref name according to git-check-ref-format
 	if ($input =~ m!(/\.|\.\.|[\000-\040\177 ~^:?*\[]|/$)!) {
 		return undef;
 	}
-	return $input;
+	return 1;
+}
+
+sub is_valid_refname {
+	my $input = shift;
+
+	return undef unless defined $input;
+	# textual hashes are O.K.
+	if ($input =~ m/^[0-9a-fA-F]{40}$/) {
+		return 1;
+	}
+	# it must be correct pathname
+	is_valid_pathname($input) or return undef;
+	# check git-check-ref-format restrictions
+	is_valid_ref_format($input) or return undef;
+	return 1;
 }
 
 # decode sequences of octets in utf8 into Perl's internal form,
@@ -1549,7 +1609,7 @@ sub esc_path {
 	return $str;
 }
 
-# Sanitize for use in XHTML + application/xml+xhtm (valid XML 1.0)
+# Sanitize for use in XHTML + application/xml+xhtml (valid XML 1.0)
 sub sanitize {
 	my $str = shift;
 
@@ -1969,10 +2029,24 @@ sub format_log_line_html {
 	my $line = shift;
 
 	$line = esc_html($line, -nbsp=>1);
-	$line =~ s{\b([0-9a-fA-F]{8,40})\b}{
+	$line =~ s{
+        \b
+        (
+            # The output of "git describe", e.g. v2.10.0-297-gf6727b0
+            # or hadoop-20160921-113441-20-g094fb7d
+            (?<!-) # see strbuf_check_tag_ref(). Tags can't start with -
+            [A-Za-z0-9.-]+
+            (?!\.) # refs can't end with ".", see check_refname_format()
+            -g[0-9a-fA-F]{7,40}
+            |
+            # Just a normal looking Git SHA1
+            [0-9a-fA-F]{7,40}
+        )
+        \b
+    }{
 		$cgi->a({-href => href(action=>"object", hash=>$1),
 					-class => "text"}, $1);
-	}eg;
+	}egx;
 
 	return $line;
 }
@@ -2023,7 +2097,7 @@ sub format_ref_marker {
 				-href => href(
 					action=>$dest_action,
 					hash=>$dest
-				)}, $name);
+				)}, esc_html($name));
 
 			$markers .= " <span class=\"".esc_attr($class)."\" title=\"".esc_attr($ref)."\">" .
 				$link . "</span>";
@@ -2084,7 +2158,7 @@ sub gravatar_url {
 	my $size = shift;
 	$avatar_cache{$email} ||=
 		"//www.gravatar.com/avatar/" .
-			Digest::MD5::md5_hex($email) . "?s=";
+			md5_hex($email) . "?s=";
 	return $avatar_cache{$email} . $size;
 }
 
@@ -2512,6 +2586,7 @@ sub format_snapshot_links {
 sub get_feed_info {
 	my $format = shift || 'Atom';
 	my %res = (action => lc($format));
+	my $matched_ref = 0;
 
 	# feed links are possible only for project views
 	return unless (defined $project);
@@ -2519,12 +2594,17 @@ sub get_feed_info {
 	# or don't have specific feed yet (so they should use generic)
 	return if (!$action || $action =~ /^(?:tags|heads|forks|tag|search)$/x);
 
-	my $branch;
-	# branches refs uses 'refs/heads/' prefix (fullname) to differentiate
-	# from tag links; this also makes possible to detect branch links
-	if ((defined $hash_base && $hash_base =~ m!^refs/heads/(.*)$!) ||
-	    (defined $hash      && $hash      =~ m!^refs/heads/(.*)$!)) {
-		$branch = $1;
+	my $branch = undef;
+	# branches refs uses 'refs/' + $get_branch_refs()[x] + '/' prefix
+	# (fullname) to differentiate from tag links; this also makes
+	# possible to detect branch links
+	for my $ref (get_branch_refs()) {
+		if ((defined $hash_base && $hash_base =~ m!^refs/\Q$ref\E/(.*)$!) ||
+		    (defined $hash      && $hash      =~ m!^refs/\Q$ref\E/(.*)$!)) {
+			$branch = $1;
+			$matched_ref = $ref;
+			last;
+		}
 	}
 	# find log type for feed description (title)
 	my $type = 'log';
@@ -2537,7 +2617,7 @@ sub get_feed_info {
 	}
 
 	$res{-title} = $type;
-	$res{'hash'} = (defined $branch ? "refs/heads/$branch" : undef);
+	$res{'hash'} = (defined $branch ? "refs/$matched_ref/$branch" : undef);
 	$res{'file_name'} = $file_name;
 
 	return %res;
@@ -2984,6 +3064,8 @@ sub git_get_projects_list {
 				return if (m!^[/.]$!);
 				# only directories can be git repositories
 				return unless (-d $_);
+				# need search permission
+				return unless (-x $_);
 				# don't traverse too deep (Find is super slow on os x)
 				# $project_maxdepth excludes depth of $projectroot
 				if (($File::Find::name =~ tr!/!!) - $pfxdepth > $project_maxdepth) {
@@ -3038,7 +3120,7 @@ sub git_get_projects_list {
 	return @list;
 }
 
-# written with help of Tree::Trie module (Perl Artistic License, GPL compatibile)
+# written with help of Tree::Trie module (Perl Artistic License, GPL compatible)
 # as side effects it sets 'forks' field to list of forks for forked projects
 sub filter_forks_from_projects_list {
 	my $projects = shift;
@@ -3190,7 +3272,7 @@ sub git_get_last_activity {
 	     '--format=%(committer)',
 	     '--sort=-committerdate',
 	     '--count=1',
-	     'refs/heads') or return;
+	     map { "refs/$_" } get_branch_refs ()) or return;
 	my $most_recent = <$fd>;
 	close $fd or return;
 	if (defined $most_recent &&
@@ -3641,7 +3723,7 @@ sub parse_from_to_diffinfo {
 
 sub git_get_heads_list {
 	my ($limit, @classes) = @_;
-	@classes = ('heads') unless @classes;
+	@classes = get_branch_refs() unless @classes;
 	my @patterns = map { "refs/$_" } @classes;
 	my @headslist;
 
@@ -3659,9 +3741,16 @@ sub git_get_heads_list {
 		my ($committer, $epoch, $tz) =
 			($committerinfo =~ /^(.*) ([0-9]+) (.*)$/);
 		$ref_item{'fullname'}  = $name;
-		$name =~ s!^refs/(?:head|remote)s/!!;
+		my $strip_refs = join '|', map { quotemeta } get_branch_refs();
+		$name =~ s!^refs/($strip_refs|remotes)/!!;
+		$ref_item{'name'} = $name;
+		# for refs neither in 'heads' nor 'remotes' we want to
+		# show their ref dir
+		my $ref_dir = (defined $1) ? $1 : '';
+		if ($ref_dir ne '' and $ref_dir ne 'heads' and $ref_dir ne 'remotes') {
+		    $ref_item{'name'} .= ' (' . $ref_dir . ')';
+		}
 
-		$ref_item{'name'}  = $name;
 		$ref_item{'id'}    = $hash;
 		$ref_item{'title'} = $title || '(no commit message)';
 		$ref_item{'epoch'} = $epoch;
@@ -3833,7 +3922,7 @@ sub blob_contenttype {
 # guess file syntax for syntax highlighting; return undef if no highlighting
 # the name of syntax can (in the future) depend on syntax highlighter used
 sub guess_file_syntax {
-	my ($highlight, $mimetype, $file_name) = @_;
+	my ($highlight, $file_name) = @_;
 	return undef unless ($highlight && defined $file_name);
 	my $basename = basename($file_name, '.in');
 	return $highlight_basename{$basename}
@@ -3851,12 +3940,16 @@ sub guess_file_syntax {
 # or return original FD if no highlighting
 sub run_highlighter {
 	my ($fd, $highlight, $syntax) = @_;
-	return $fd unless ($highlight && defined $syntax);
+	return $fd unless ($highlight);
 
 	close $fd;
+	my $syntax_arg = (defined $syntax) ? "--syntax $syntax" : "--force";
 	open $fd, quote_command(git_cmd(), "cat-file", "blob", $hash)." | ".
+	          quote_command($^X, '-CO', '-MEncode=decode,FB_DEFAULT', '-pse',
+	            '$_ = decode($fe, $_, FB_DEFAULT) if !utf8::decode($_);',
+	            '--', "-fe=$fallback_encoding")." | ".
 	          quote_command($highlight_bin).
-	          " --replace-tabs=8 --fragment --syntax $syntax |"
+	          " --replace-tabs=8 --fragment $syntax_arg |"
 		or die_error(500, "Couldn't open file or run syntax highlighter");
 	return $fd;
 }
@@ -3982,7 +4075,9 @@ sub print_nav_breadcrumbs_path {
 sub print_nav_breadcrumbs {
 	my %opts = @_;
 
-	print $cgi->a({-href => esc_url($home_link)}, $home_link_str) . " / ";
+	for my $crumb (@extra_breadcrumbs, [ $home_link_str => $home_link ]) {
+		print $cgi->a({-href => esc_url($crumb->[1])}, $crumb->[0]) . " / ";
+	}
 	if (defined $project) {
 		my @dirname = split '/', $project;
 		my $projectbasename = pop @dirname;
@@ -4022,7 +4117,7 @@ sub print_search_form {
 	if ($use_pathinfo) {
 		$action .= "/".esc_url($project);
 	}
-	print $cgi->startform(-method => "get", -action => $action) .
+	print $cgi->start_form(-method => "get", -action => $action) .
 	      "<div class=\"search\">\n" .
 	      (!$use_pathinfo &&
 	      $cgi->input({-name=>"p", -value=>$project, -type=>"hidden"}) . "\n") .
@@ -4030,8 +4125,8 @@ sub print_search_form {
 	      $cgi->input({-name=>"h", -value=>$search_hash, -type=>"hidden"}) . "\n" .
 	      $cgi->popup_menu(-name => 'st', -default => 'commit',
 	                       -values => ['commit', 'grep', 'author', 'committer', 'pickaxe']) .
-	      $cgi->sup($cgi->a({-href => href(action=>"search_help")}, "?")) .
-	      " search:\n",
+	      " " . $cgi->a({-href => href(action=>"search_help"),
+			     -title => "search help" }, "?") . " search:\n",
 	      $cgi->textfield(-name => "s", -value => $searchtext, -override => 1) . "\n" .
 	      "<span title=\"Extended regular expression\">" .
 	      $cgi->checkbox(-name => 'sr', -value => 1, -label => 're',
@@ -4276,7 +4371,7 @@ sub git_print_page_nav {
 	      "</div>\n";
 }
 
-# returns a submenu for the nagivation of the refs views (tags, heads,
+# returns a submenu for the navigation of the refs views (tags, heads,
 # remotes) with the current view disabled and the remotes view only
 # available if the feature is enabled
 sub format_ref_views {
@@ -5432,7 +5527,7 @@ sub git_project_search_form {
 	}
 
 	print "<div class=\"projsearch\">\n";
-	print $cgi->startform(-method => 'get', -action => $my_uri) .
+	print $cgi->start_form(-method => 'get', -action => $my_uri) .
 	      $cgi->hidden(-name => 'a', -value => 'project_list')  . "\n";
 	print $cgi->hidden(-name => 'pf', -value => $project_filter). "\n"
 		if (defined $project_filter);
@@ -5865,6 +5960,9 @@ sub git_history_body {
 		      $cgi->a({-href => href(action=>"commitdiff", hash=>$commit)}, "commitdiff");
 
 		if ($ftype eq 'blob') {
+			print " | " .
+			      $cgi->a({-href => href(action=>"blob_plain", hash_base=>$commit, file_name=>$file_name)}, "raw");
+
 			my $blob_current = $file_hash;
 			my $blob_parent  = git_get_hash_by_path($commit, $file_name);
 			if (defined $blob_current && defined $blob_parent &&
@@ -6463,7 +6561,7 @@ sub git_summary {
 	print "<div class=\"title\">&nbsp;</div>\n";
 	print "<table class=\"projects_list\">\n" .
 	      "<tr id=\"metadata_desc\"><td>description</td><td>" . esc_html($descr) . "</td></tr>\n";
-        unless ($omit_owner) {
+        if ($owner and not $omit_owner) {
 	        print  "<tr id=\"metadata_owner\"><td>owner</td><td>" . esc_html($owner) . "</td></tr>\n";
         }
 	if (defined $cd{'rfc2822'}) {
@@ -6626,6 +6724,7 @@ sub git_blame_common {
 			$hash_base, '--', $file_name
 			or die_error(500, "Open git-blame --porcelain failed");
 	}
+	binmode $fd, ':utf8';
 
 	# incremental blame data returns early
 	if ($format eq 'data') {
@@ -6976,9 +7075,8 @@ sub git_blob {
 	$have_blame &&= ($mimetype =~ m!^text/!);
 
 	my $highlight = gitweb_check_feature('highlight');
-	my $syntax = guess_file_syntax($highlight, $mimetype, $file_name);
-	$fd = run_highlighter($fd, $highlight, $syntax)
-		if $syntax;
+	my $syntax = guess_file_syntax($highlight, $file_name);
+	$fd = run_highlighter($fd, $highlight, $syntax);
 
 	git_header_html(undef, $expires);
 	my $formats_nav = '';
@@ -7015,7 +7113,7 @@ sub git_blob {
 	git_print_page_path($file_name, "blob", $hash_base);
 	print "<div class=\"page_body\">\n";
 	if ($mimetype =~ m!^image/!) {
-		print qq!<img type="!.esc_attr($mimetype).qq!"!;
+		print qq!<img class="blob" type="!.esc_attr($mimetype).qq!"!;
 		if ($file_name) {
 			print qq! alt="!.esc_attr($file_name).qq!" title="!.esc_attr($file_name).qq!"!;
 		}
@@ -7031,7 +7129,7 @@ sub git_blob {
 			$line = untabify($line);
 			printf qq!<div class="pre"><a id="l%i" href="%s#l%i" class="linenr">%4i</a> %s</div>\n!,
 			       $nr, esc_attr(href(-replay => 1)), $nr, $nr,
-			       $syntax ? sanitize($line) : esc_html($line, -nbsp=>1);
+			       $highlight ? sanitize($line) : esc_html($line, -nbsp=>1);
 		}
 	}
 	close $fd
@@ -7150,6 +7248,15 @@ sub git_tree {
 	git_footer_html();
 }
 
+sub sanitize_for_filename {
+    my $name = shift;
+
+    $name =~ s!/!-!g;
+    $name =~ s/[^[:alnum:]_.-]//g;
+
+    return $name;
+}
+
 sub snapshot_name {
 	my ($project, $hash) = @_;
 
@@ -7157,9 +7264,7 @@ sub snapshot_name {
 	# path/to/project/.git -> project
 	my $name = to_utf8($project);
 	$name =~ s,([^/])/*\.git$,$1,;
-	$name = basename($name);
-	# sanitize name
-	$name =~ s/[[:cntrl:]]/?/g;
+	$name = sanitize_for_filename(basename($name));
 
 	my $ver = $hash;
 	if ($hash =~ /^[0-9a-fA-F]+$/) {
@@ -7173,13 +7278,25 @@ sub snapshot_name {
 		$ver = $1;
 	} else {
 		# branches and other need shortened SHA-1 hash
-		if ($hash =~ m!^refs/(?:heads|remotes)/(.*)$!) {
-			$ver = $1;
+		my $strip_refs = join '|', map { quotemeta } get_branch_refs();
+		if ($hash =~ m!^refs/($strip_refs|remotes)/(.*)$!) {
+			my $ref_dir = (defined $1) ? $1 : '';
+			$ver = $2;
+
+			$ref_dir = sanitize_for_filename($ref_dir);
+			# for refs neither in heads nor remotes we want to
+			# add a ref dir to archive name
+			if ($ref_dir ne '' and $ref_dir ne 'heads' and $ref_dir ne 'remotes') {
+				$ver = $ref_dir . '-' . $ver;
+			}
 		}
 		$ver .= '-' . git_get_short_hash($project, $hash);
 	}
+	# special case of sanitization for filename - we change
+	# slashes to dots instead of dashes
 	# in case of hierarchical branch names
 	$ver =~ s!/!.!g;
+	$ver =~ s/[^[:alnum:]_.-]//g;
 
 	# name = project-version_string
 	$name = "$name-$ver";
@@ -7474,7 +7591,7 @@ sub git_object {
 			git_cmd(), 'cat-file', '-t', $object_id) . ' 2> /dev/null'
 			or die_error(404, "Object does not exist");
 		$type = <$fd>;
-		chomp $type;
+		defined $type && chomp $type;
 		close $fd
 			or die_error(404, "Object does not exist");
 
@@ -7966,7 +8083,7 @@ sub git_search_help {
 <p><strong>Pattern</strong> is by default a normal string that is matched precisely (but without
 regard to case, except in the case of pickaxe). However, when you check the <em>re</em> checkbox,
 the pattern entered is recognized as the POSIX extended
-<a href="http://en.wikipedia.org/wiki/Regular_expression">regular expression</a> (also case
+<a href="https://en.wikipedia.org/wiki/Regular_expression">regular expression</a> (also case
 insensitive).</p>
 <dl>
 <dt><b>commit</b></dt>

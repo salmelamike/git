@@ -13,11 +13,31 @@ attr_check () {
 	test_line_count = 0 err
 }
 
+attr_check_quote () {
+
+	path="$1"
+	quoted_path="$2"
+	expect="$3"
+
+	git check-attr test -- "$path" >actual &&
+	echo "\"$quoted_path\": test: $expect" >expect &&
+	test_cmp expect actual
+
+}
+
+test_expect_success 'open-quoted pathname' '
+	echo "\"a test=a" >.gitattributes &&
+	test_must_fail attr_check a a
+'
+
 
 test_expect_success 'setup' '
 	mkdir -p a/b/d a/c b &&
 	(
 		echo "[attr]notest !test"
+		echo "\" d \"	test=d"
+		echo " e	test=e"
+		echo " e\"	test=e"
 		echo "f	test=f"
 		echo "a/i test=a/i"
 		echo "onoff test -test"
@@ -70,6 +90,11 @@ test_expect_success 'command line checks' '
 '
 
 test_expect_success 'attribute test' '
+
+	attr_check " d " d &&
+	attr_check e e &&
+	attr_check_quote e\" e\\\" e &&
+
 	attr_check f f &&
 	attr_check a/f f &&
 	attr_check a/c/f f &&
@@ -244,40 +269,58 @@ EOF
 	test_line_count = 0 err
 '
 
+test_expect_success 'using --git-dir and --work-tree' '
+	mkdir unreal real &&
+	git init real &&
+	echo "file test=in-real" >real/.gitattributes &&
+	(
+		cd unreal &&
+		attr_check file in-real "--git-dir ../real/.git --work-tree ../real"
+	)
+'
+
 test_expect_success 'setup bare' '
-	git clone --bare . bare.git &&
-	cd bare.git
+	git clone --bare . bare.git
 '
 
 test_expect_success 'bare repository: check that .gitattribute is ignored' '
 	(
-		echo "f	test=f"
-		echo "a/i test=a/i"
-	) >.gitattributes &&
-	attr_check f unspecified &&
-	attr_check a/f unspecified &&
-	attr_check a/c/f unspecified &&
-	attr_check a/i unspecified &&
-	attr_check subdir/a/i unspecified
+		cd bare.git &&
+		(
+			echo "f	test=f"
+			echo "a/i test=a/i"
+		) >.gitattributes &&
+		attr_check f unspecified &&
+		attr_check a/f unspecified &&
+		attr_check a/c/f unspecified &&
+		attr_check a/i unspecified &&
+		attr_check subdir/a/i unspecified
+	)
 '
 
 test_expect_success 'bare repository: check that --cached honors index' '
-	GIT_INDEX_FILE=../.git/index \
-	git check-attr --cached --stdin --all <../stdin-all |
-	sort >actual &&
-	test_cmp ../specified-all actual
+	(
+		cd bare.git &&
+		GIT_INDEX_FILE=../.git/index \
+		git check-attr --cached --stdin --all <../stdin-all |
+		sort >actual &&
+		test_cmp ../specified-all actual
+	)
 '
 
 test_expect_success 'bare repository: test info/attributes' '
 	(
-		echo "f	test=f"
-		echo "a/i test=a/i"
-	) >info/attributes &&
-	attr_check f f &&
-	attr_check a/f f &&
-	attr_check a/c/f f &&
-	attr_check a/i a/i &&
-	attr_check subdir/a/i unspecified
+		cd bare.git &&
+		(
+			echo "f	test=f"
+			echo "a/i test=a/i"
+		) >info/attributes &&
+		attr_check f f &&
+		attr_check a/f f &&
+		attr_check a/c/f f &&
+		attr_check a/i a/i &&
+		attr_check subdir/a/i unspecified
+	)
 '
 
 test_done

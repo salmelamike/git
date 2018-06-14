@@ -20,17 +20,16 @@ then
     skip_all='skipping git-cvsserver tests, cvs not found'
     test_done
 fi
-"$PERL_PATH" -e 'use DBI; use DBD::SQLite' >/dev/null 2>&1 || {
+perl -e 'use DBI; use DBD::SQLite' >/dev/null 2>&1 || {
     skip_all='skipping git-cvsserver tests, Perl SQLite interface unavailable'
     test_done
 }
 
-unset GIT_DIR GIT_CONFIG
-WORKDIR=$(pwd)
-SERVERDIR=$(pwd)/gitcvs.git
+WORKDIR=$PWD
+SERVERDIR=$PWD/gitcvs.git
 git_config="$SERVERDIR/config"
 CVSROOT=":fork:$SERVERDIR"
-CVSWORK="$(pwd)/cvswork"
+CVSWORK="$PWD/cvswork"
 CVS_SERVER=git-cvsserver
 export CVSROOT CVS_SERVER
 
@@ -46,7 +45,8 @@ test_expect_success 'setup' '
   touch secondrootfile &&
   git add secondrootfile &&
   git commit -m "second root") &&
-  git pull secondroot master &&
+  git fetch secondroot master &&
+  git merge --allow-unrelated-histories FETCH_HEAD &&
   git clone -q --bare "$WORKDIR/.git" "$SERVERDIR" >/dev/null 2>&1 &&
   GIT_DIR="$SERVERDIR" git config --bool gitcvs.enabled true &&
   GIT_DIR="$SERVERDIR" git config gitcvs.logfile "$SERVERDIR/gitcvs.log" &&
@@ -447,12 +447,10 @@ test_expect_success 'cvs update (-p)' '
     git push gitcvs.git >/dev/null &&
     cd cvswork &&
     GIT_CONFIG="$git_config" cvs update &&
-    rm -f failures &&
     for i in merge no-lf empty really-empty; do
-        GIT_CONFIG="$git_config" cvs update -p "$i" >$i.out
-	test_cmp $i.out ../$i >>failures 2>&1
-    done &&
-    test -z "$(cat failures)"
+	GIT_CONFIG="$git_config" cvs update -p "$i" >$i.out &&
+	test_cmp $i.out ../$i || return 1
+    done
 '
 
 cd "$WORKDIR"
@@ -512,7 +510,7 @@ test_expect_success 'cvs co -c (shows module database)' '
 # Known issues with git-cvsserver current log output:
 #  - Hard coded "lines: +2 -3" placeholder, instead of real numbers.
 #  - CVS normally does not internally add a blank first line
-#    nor a last line with nothing but a space to log messages.
+#    or a last line with nothing but a space to log messages.
 #  - The latest cvs 1.12.x server sends +0000 timezone (with some hidden "MT"
 #    tagging in the protocol), and if cvs 1.12.x client sees the MT tags,
 #    it converts to local time zone.  git-cvsserver doesn't do the +0000
@@ -586,6 +584,54 @@ test_expect_success 'cvs annotate' '
     sed -e "s/ .*//" ../out >../actual &&
     for i in 3 1 1 1 1 1 1 1 2 4; do echo 1.$i; done >../expect &&
     test_cmp ../expect ../actual
+'
+
+#------------
+# running via git-shell
+#------------
+
+cd "$WORKDIR"
+
+test_expect_success 'create remote-cvs helper' '
+	write_script remote-cvs <<-\EOF
+	exec git shell -c "cvs server"
+	EOF
+'
+
+test_expect_success 'cvs server does not run with vanilla git-shell' '
+	(
+		cd cvswork &&
+		CVS_SERVER=$WORKDIR/remote-cvs &&
+		export CVS_SERVER &&
+		test_must_fail cvs log merge
+	)
+'
+
+test_expect_success 'configure git shell to run cvs server' '
+	mkdir "$HOME"/git-shell-commands &&
+
+	write_script "$HOME"/git-shell-commands/cvs <<-\EOF &&
+	if ! test $# = 1 && test "$1" = "server"
+	then
+		echo >&2 "git-cvsserver only handles \"server\""
+		exit 1
+	fi
+	exec git cvsserver server
+	EOF
+
+	# Should not be used, but part of the recommended setup
+	write_script "$HOME"/git-shell-commands/no-interactive-login <<-\EOF
+	echo Interactive login forbidden
+	EOF
+'
+
+test_expect_success 'cvs server can run with recommended config' '
+	(
+		cd cvswork &&
+		CVS_SERVER=$WORKDIR/remote-cvs &&
+		export CVS_SERVER &&
+		cvs log merge
+	)
 '
 
 test_done

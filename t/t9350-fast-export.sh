@@ -70,7 +70,7 @@ test_expect_success 'iso-8859-1' '
 
 	git config i18n.commitencoding ISO8859-1 &&
 	# use author and committer name in ISO-8859-1 to match it.
-	. "$TEST_DIRECTORY"/t3901-8859-1.txt &&
+	. "$TEST_DIRECTORY"/t3901/8859-1.txt &&
 	test_tick &&
 	echo rosten >file &&
 	git commit -s -m den file &&
@@ -163,7 +163,7 @@ test_expect_success 'setup submodule' '
 		git add file &&
 		git commit -m sub_initial
 	) &&
-	git submodule add "`pwd`/sub" sub &&
+	git submodule add "$(pwd)/sub" sub &&
 	git commit -m initial &&
 	test_tick &&
 	(
@@ -234,7 +234,7 @@ test_expect_success 'fast-export -C -C | fast-import' '
 	mkdir new &&
 	git --git-dir=new/.git init &&
 	git fast-export -C -C --signed-tags=strip --all > output &&
-	grep "^C file6 file7\$" output &&
+	grep "^C file2 file4\$" output &&
 	cat output |
 	(cd new &&
 	 git fast-import &&
@@ -377,7 +377,7 @@ test_expect_success 'full-tree re-shows unmodified files'        '
 
 test_expect_success 'set-up a few more tags for tag export tests' '
 	git checkout -f master &&
-	HEAD_TREE=`git show -s --pretty=raw HEAD | grep tree | sed "s/tree //"` &&
+	HEAD_TREE=$(git show -s --pretty=raw HEAD | grep tree | sed "s/tree //") &&
 	git tag    tree_tag        -m "tagging a tree" $HEAD_TREE &&
 	git tag -a tree_tag-obj    -m "tagging a tree" $HEAD_TREE &&
 	git tag    tag-obj_tag     -m "tagging a tag" tree_tag-obj &&
@@ -396,7 +396,7 @@ test_expect_success 'tree_tag-obj'    'git fast-export tree_tag-obj'
 test_expect_success 'tag-obj_tag'     'git fast-export tag-obj_tag'
 test_expect_success 'tag-obj_tag-obj' 'git fast-export tag-obj_tag-obj'
 
-test_expect_success SYMLINKS 'directory becomes symlink'        '
+test_expect_success 'directory becomes symlink'        '
 	git init dirtosymlink &&
 	git init result &&
 	(
@@ -408,8 +408,7 @@ test_expect_success SYMLINKS 'directory becomes symlink'        '
 		git add foo/world bar/world &&
 		git commit -q -mone &&
 		git rm -r foo &&
-		ln -s bar foo &&
-		git add foo &&
+		test_ln_s_add bar foo &&
 		git commit -q -mtwo
 	) &&
 	(
@@ -423,14 +422,14 @@ test_expect_success SYMLINKS 'directory becomes symlink'        '
 test_expect_success 'fast-export quotes pathnames' '
 	git init crazy-paths &&
 	(cd crazy-paths &&
-	 blob=`echo foo | git hash-object -w --stdin` &&
+	 blob=$(echo foo | git hash-object -w --stdin) &&
 	 git update-index --add \
 		--cacheinfo 100644 $blob "$(printf "path with\\nnewline")" \
 		--cacheinfo 100644 $blob "path with \"quote\"" \
 		--cacheinfo 100644 $blob "path with \\backslash" \
 		--cacheinfo 100644 $blob "path with space" &&
 	 git commit -m addition &&
-	 git ls-files -z -s | "$PERL_PATH" -0pe "s{\\t}{$&subdir/}" >index &&
+	 git ls-files -z -s | perl -0pe "s{\\t}{$&subdir/}" >index &&
 	 git read-tree --empty &&
 	 git update-index -z --index-info <index &&
 	 git commit -m rename &&
@@ -502,6 +501,42 @@ test_expect_success 'refs are updated even if no commits need to be exported' '
 		--export-marks=tmp-marks master > /dev/null &&
 	git fast-export --import-marks=tmp-marks \
 		--export-marks=tmp-marks master > actual &&
+	test_cmp expected actual
+'
+
+test_expect_success 'use refspec' '
+	git fast-export --refspec refs/heads/master:refs/heads/foobar master | \
+		grep "^commit " | sort | uniq > actual &&
+	echo "commit refs/heads/foobar" > expected &&
+	test_cmp expected actual
+'
+
+test_expect_success 'delete refspec' '
+	git branch to-delete &&
+	git fast-export --refspec :refs/heads/to-delete to-delete ^to-delete > actual &&
+	cat > expected <<-EOF &&
+	reset refs/heads/to-delete
+	from 0000000000000000000000000000000000000000
+
+	EOF
+	test_cmp expected actual
+'
+
+test_expect_success 'when using -C, do not declare copy when source of copy is also modified' '
+	test_create_repo src &&
+	echo a_line >src/file.txt &&
+	git -C src add file.txt &&
+	git -C src commit -m 1st_commit &&
+
+	cp src/file.txt src/file2.txt &&
+	echo another_line >>src/file.txt &&
+	git -C src add file.txt file2.txt &&
+	git -C src commit -m 2nd_commit &&
+
+	test_create_repo dst &&
+	git -C src fast-export --all -C | git -C dst fast-import &&
+	git -C src show >expected &&
+	git -C dst show >actual &&
 	test_cmp expected actual
 '
 

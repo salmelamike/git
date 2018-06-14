@@ -15,8 +15,7 @@
     GNU General Public License for more details.
 
     You should have received a copy of the GNU General Public License
-    along with this program; if not, write to the Free Software
-    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+    along with this program; if not, see <http://www.gnu.org/licenses/>.
 """
 
 import os, os.path, sys
@@ -225,7 +224,7 @@ for cset in range(int(tip) + 1):
     os.system('git ls-files -x .hg --deleted | git update-index --remove --stdin')
 
     # commit
-    os.system(getgitenv(user, date) + 'git commit --allow-empty -a -F %s' % filecomment)
+    os.system(getgitenv(user, date) + 'git commit --allow-empty --allow-empty-message -a -F %s' % filecomment)
     os.unlink(filecomment)
 
     # tag

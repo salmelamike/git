@@ -16,8 +16,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License along
-   with this program; if not, write to the Free Software Foundation,
-   Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.  */
+   with this program; if not, see <http://www.gnu.org/licenses/>.  */
 
 /* Tell gcc not to warn about the (nfd < 0) tests, below.  */
 #if (__GNUC__ == 4 && 3 <= __GNUC_MINOR__) || 4 < __GNUC__
@@ -39,7 +38,7 @@
 
 #if (defined _WIN32 || defined __WIN32__) && ! defined __CYGWIN__
 # define WIN32_NATIVE
-# if defined (_MSC_VER)
+# if defined (_MSC_VER) && !defined(_WIN32_WINNT)
 #  define _WIN32_WINNT 0x0502
 # endif
 # include <winsock2.h>
@@ -76,7 +75,7 @@
 
 #ifdef WIN32_NATIVE
 
-#define IsConsoleHandle(h) (((long) (h) & 3) == 3)
+#define IsConsoleHandle(h) (((long) (intptr_t) (h) & 3) == 3)
 
 static BOOL
 IsSocketHandle (HANDLE h)
@@ -438,6 +437,10 @@ poll (struct pollfd *pfd, nfds_t nfd, int timeout)
 	    pfd[i].revents = happened;
 	    rc++;
 	  }
+	else
+	  {
+	    pfd[i].revents = 0;
+	  }
       }
 
   return rc;
@@ -446,7 +449,7 @@ poll (struct pollfd *pfd, nfds_t nfd, int timeout)
   static HANDLE hEvent;
   WSANETWORKEVENTS ev;
   HANDLE h, handle_array[FD_SETSIZE + 2];
-  DWORD ret, wait_timeout, nhandles;
+  DWORD ret, wait_timeout, nhandles, start = 0, elapsed, orig_timeout = 0;
   fd_set rfds, wfds, xfds;
   BOOL poll_again;
   MSG msg;
@@ -457,6 +460,12 @@ poll (struct pollfd *pfd, nfds_t nfd, int timeout)
     {
       errno = EINVAL;
       return -1;
+    }
+
+  if (timeout != INFTIM)
+    {
+      orig_timeout = timeout;
+      start = GetTickCount();
     }
 
   if (!hEvent)
@@ -576,7 +585,7 @@ restart:
 	{
 	  /* It's a socket.  */
 	  WSAEnumNetworkEvents ((SOCKET) h, NULL, &ev);
-	  WSAEventSelect ((SOCKET) h, 0, 0);
+	  WSAEventSelect ((SOCKET) h, NULL, 0);
 
 	  /* If we're lucky, WSAEnumNetworkEvents already provided a way
 	     to distinguish FD_READ and FD_ACCEPT; this saves a recv later.  */
@@ -603,9 +612,15 @@ restart:
 	rc++;
     }
 
-  if (!rc && timeout == INFTIM)
+  if (!rc && orig_timeout && timeout != INFTIM)
     {
-      SwitchToThread();
+      elapsed = GetTickCount() - start;
+      timeout = elapsed >= orig_timeout ? 0 : orig_timeout - elapsed;
+    }
+
+  if (!rc && timeout)
+    {
+      SleepEx (1, TRUE);
       goto restart;
     }
 

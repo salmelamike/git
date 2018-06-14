@@ -242,10 +242,12 @@ test_expect_success 'merge of identical changes in a renamed file' '
 	rm -f A M N &&
 	git reset --hard &&
 	git checkout change+rename &&
-	GIT_MERGE_VERBOSITY=3 git merge change | test_i18ngrep "^Skipped B" &&
+	GIT_MERGE_VERBOSITY=3 git merge change >out &&
+	test_i18ngrep "^Skipped B" out &&
 	git reset --hard HEAD^ &&
 	git checkout change &&
-	GIT_MERGE_VERBOSITY=3 git merge change+rename | test_i18ngrep "^Skipped B"
+	GIT_MERGE_VERBOSITY=3 git merge change+rename >out &&
+	test_i18ngrep "^Skipped B" out
 '
 
 test_expect_success 'setup for rename + d/f conflicts' '
@@ -259,7 +261,7 @@ test_expect_success 'setup for rename + d/f conflicts' '
 	printf "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n" >sub/file &&
 	echo foo >dir/file-in-the-way &&
 	git add -A &&
-	git commit -m "Common commmit" &&
+	git commit -m "Common commit" &&
 
 	echo 11 >>sub/file &&
 	echo more >>dir/file-in-the-way &&
@@ -439,7 +441,7 @@ test_expect_success 'setup both rename source and destination involved in D/F co
 	mkdir one &&
 	echo stuff >one/file &&
 	git add -A &&
-	git commit -m "Common commmit" &&
+	git commit -m "Common commit" &&
 
 	git mv one/file destdir &&
 	git commit -m "Renamed to destdir" &&
@@ -479,7 +481,7 @@ test_expect_success 'setup pair rename to parent of other (D/F conflicts)' '
 	echo stuff >one/file &&
 	echo other >two/file &&
 	git add -A &&
-	git commit -m "Common commmit" &&
+	git commit -m "Common commit" &&
 
 	git rm -rf one &&
 	git mv two/file one &&
@@ -539,7 +541,7 @@ test_expect_success 'setup rename of one file to two, with directories in the wa
 
 	echo stuff >original &&
 	git add -A &&
-	git commit -m "Common commmit" &&
+	git commit -m "Common commit" &&
 
 	mkdir two &&
 	>two/file &&
@@ -583,7 +585,7 @@ test_expect_success 'setup rename one file to two; directories moving out of the
 	mkdir one two &&
 	touch one/file two/file &&
 	git add -A &&
-	git commit -m "Common commmit" &&
+	git commit -m "Common commit" &&
 
 	git rm -rf one &&
 	git mv original one &&
@@ -618,7 +620,7 @@ test_expect_success 'setup avoid unnecessary update, normal rename' '
 
 	printf "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n" >original &&
 	git add -A &&
-	git commit -m "Common commmit" &&
+	git commit -m "Common commit" &&
 
 	git mv original rename &&
 	echo 11 >>rename &&
@@ -649,7 +651,7 @@ test_expect_success 'setup to test avoiding unnecessary update, with D/F conflic
 	mkdir df &&
 	printf "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n" >df/file &&
 	git add -A &&
-	git commit -m "Common commmit" &&
+	git commit -m "Common commit" &&
 
 	git mv df/file temp &&
 	rm -rf df &&
@@ -685,7 +687,7 @@ test_expect_success 'setup avoid unnecessary update, dir->(file,nothing)' '
 	git add -A &&
 	git commit -mA &&
 
-	git checkout -b side
+	git checkout -b side &&
 	git rm -rf df &&
 	git commit -mB &&
 
@@ -716,7 +718,7 @@ test_expect_success 'setup avoid unnecessary update, modify/delete' '
 	git add -A &&
 	git commit -mA &&
 
-	git checkout -b side
+	git checkout -b side &&
 	git rm -f file &&
 	git commit -m "Delete file" &&
 
@@ -745,7 +747,7 @@ test_expect_success 'setup avoid unnecessary update, rename/add-dest' '
 	git add -A &&
 	git commit -mA &&
 
-	git checkout -b side
+	git checkout -b side &&
 	cp file newfile &&
 	git add -A &&
 	git commit -m "Add file copy" &&

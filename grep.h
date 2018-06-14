@@ -1,11 +1,36 @@
 #ifndef GREP_H
 #define GREP_H
 #include "color.h"
-#ifdef USE_LIBPCRE
+#ifdef USE_LIBPCRE1
 #include <pcre.h>
+#ifdef PCRE_CONFIG_JIT
+#if PCRE_MAJOR >= 8 && PCRE_MINOR >= 32
+#ifndef NO_LIBPCRE1_JIT
+#define GIT_PCRE1_USE_JIT
+#define GIT_PCRE_STUDY_JIT_COMPILE PCRE_STUDY_JIT_COMPILE
+#endif
+#endif
+#endif
+#ifndef GIT_PCRE_STUDY_JIT_COMPILE
+#define GIT_PCRE_STUDY_JIT_COMPILE 0
+#endif
+#if PCRE_MAJOR <= 8 && PCRE_MINOR < 20
+typedef int pcre_jit_stack;
+#endif
 #else
 typedef int pcre;
 typedef int pcre_extra;
+typedef int pcre_jit_stack;
+#endif
+#ifdef USE_LIBPCRE2
+#define PCRE2_CODE_UNIT_WIDTH 8
+#include <pcre2.h>
+#else
+typedef int pcre2_code;
+typedef int pcre2_match_data;
+typedef int pcre2_compile_context;
+typedef int pcre2_match_context;
+typedef int pcre2_jit_stack;
 #endif
 #include "kwset.h"
 #include "thread-utils.h"
@@ -46,8 +71,17 @@ struct grep_pat {
 	size_t patternlen;
 	enum grep_header_field field;
 	regex_t regexp;
-	pcre *pcre_regexp;
-	pcre_extra *pcre_extra_info;
+	pcre *pcre1_regexp;
+	pcre_extra *pcre1_extra_info;
+	pcre_jit_stack *pcre1_jit_stack;
+	const unsigned char *pcre1_tables;
+	int pcre1_jit_on;
+	pcre2_code *pcre2_pattern;
+	pcre2_match_data *pcre2_match_data;
+	pcre2_compile_context *pcre2_compile_context;
+	pcre2_match_context *pcre2_match_context;
+	pcre2_jit_stack *pcre2_jit_stack;
+	uint32_t pcre2_jit_on;
 	kwset_t kws;
 	unsigned fixed:1;
 	unsigned ignore_case:1;
@@ -107,9 +141,11 @@ struct grep_opt {
 #define GREP_BINARY_NOMATCH	1
 #define GREP_BINARY_TEXT	2
 	int binary;
+	int allow_textconv;
 	int extended;
 	int use_reflog_filter;
-	int pcre;
+	int pcre1;
+	int pcre2;
 	int relative;
 	int pathname;
 	int null_following_name;
@@ -123,10 +159,10 @@ struct grep_opt {
 	char color_filename[COLOR_MAXLEN];
 	char color_function[COLOR_MAXLEN];
 	char color_lineno[COLOR_MAXLEN];
-	char color_match[COLOR_MAXLEN];
+	char color_match_context[COLOR_MAXLEN];
+	char color_match_selected[COLOR_MAXLEN];
 	char color_selected[COLOR_MAXLEN];
 	char color_sep[COLOR_MAXLEN];
-	int regflags;
 	unsigned pre_context;
 	unsigned post_context;
 	unsigned last_shown;
@@ -142,7 +178,6 @@ struct grep_opt {
 extern void init_grep_defaults(void);
 extern int grep_config(const char *var, const char *value, void *);
 extern void grep_init(struct grep_opt *, const char *prefix);
-void grep_set_pattern_type_option(enum grep_pattern_type, struct grep_opt *opt);
 void grep_commit_pattern_type(enum grep_pattern_type, struct grep_opt *opt);
 
 extern void append_grep_pat(struct grep_opt *opt, const char *pat, size_t patlen, const char *origin, int no, enum grep_pat_token t);
@@ -156,7 +191,7 @@ struct grep_source {
 	char *name;
 
 	enum grep_source_type {
-		GREP_SOURCE_SHA1,
+		GREP_SOURCE_OID,
 		GREP_SOURCE_FILE,
 		GREP_SOURCE_BUF,
 	} type;

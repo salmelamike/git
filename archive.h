@@ -1,14 +1,16 @@
 #ifndef ARCHIVE_H
 #define ARCHIVE_H
 
+#include "pathspec.h"
+
 struct archiver_args {
 	const char *base;
 	size_t baselen;
 	struct tree *tree;
 	const unsigned char *commit_sha1;
 	const struct commit *commit;
-	time_t time;
-	const char **pathspec;
+	timestamp_t time;
+	struct pathspec pathspec;
 	unsigned int verbose : 1;
 	unsigned int worktree_attributes : 1;
 	unsigned int convert : 1;
@@ -34,7 +36,7 @@ typedef int (*write_archive_entry_fn_t)(struct archiver_args *args,
 					unsigned int mode);
 
 extern int write_archive_entries(struct archiver_args *args, write_archive_entry_fn_t write_entry);
-extern int write_archive(int argc, const char **argv, const char *prefix, int setup_prefix, const char *name_hint, int remote);
+extern int write_archive(int argc, const char **argv, const char *prefix, const char *name_hint, int remote);
 
 const char *archive_format_from_filename(const char *filename);
 extern void *sha1_file_to_archive(const struct archiver_args *args,

@@ -15,7 +15,7 @@ static char *get_stdin(void)
 
 static void show_new(enum object_type type, unsigned char *sha1_new)
 {
-	fprintf(stderr, "  %s: %s\n", typename(type),
+	fprintf(stderr, "  %s: %s\n", type_name(type),
 		find_unique_abbrev(sha1_new, DEFAULT_ABBREV));
 }
 
@@ -31,7 +31,8 @@ static int update_ref_env(const char *action,
 		rla = "(reflog update)";
 	if (snprintf(msg, sizeof(msg), "%s: %s", rla, action) >= sizeof(msg))
 		warning("reflog message too long: %.*s...", 50, msg);
-	return update_ref(msg, refname, sha1, oldval, 0, QUIET_ON_ERR);
+	return update_ref(msg, refname, sha1, oldval, 0,
+			  UPDATE_REFS_QUIET_ON_ERR);
 }
 
 static int update_local_ref(const char *name,
@@ -515,7 +516,7 @@ int cmd_fetch__tool(int argc, const char **argv, const char *prefix)
 
 		if (argc != 8)
 			return error("append-fetch-head takes 6 args");
-		filename = git_path("FETCH_HEAD");
+		filename = git_path_fetch_head();
 		fp = fopen(filename, "a");
 		if (!fp)
 			return error("cannot open %s: %s", filename, strerror(errno));
@@ -533,7 +534,7 @@ int cmd_fetch__tool(int argc, const char **argv, const char *prefix)
 
 		if (argc != 5)
 			return error("fetch-native-store takes 3 args");
-		filename = git_path("FETCH_HEAD");
+		filename = git_path_fetch_head();
 		fp = fopen(filename, "a");
 		if (!fp)
 			return error("cannot open %s: %s", filename, strerror(errno));

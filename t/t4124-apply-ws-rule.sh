@@ -99,9 +99,8 @@ test_expect_success 'whitespace=warn, default rule' '
 
 test_expect_success 'whitespace=error-all, default rule' '
 
-	apply_patch --whitespace=error-all && return 1
-	test -s target && return 1
-	: happy
+	test_must_fail apply_patch --whitespace=error-all &&
+	! test -s target
 
 '
 
@@ -468,21 +467,42 @@ test_expect_success 'same, but with CR-LF line endings && cr-at-eol set' '
 	test_cmp one expect
 '
 
-test_expect_success 'same, but with CR-LF line endings && cr-at-eol unset' '
+test_expect_success 'CR-LF line endings && add line && text=auto' '
 	git config --unset core.whitespace &&
 	printf "a\r\n" >one &&
-	printf "b\r\n" >>one &&
-	printf "c\r\n" >>one &&
 	cp one save-one &&
-	printf "                 \r\n" >>one &&
 	git add one &&
+	printf "b\r\n" >>one &&
 	cp one expect &&
-	printf "d\r\n" >>one &&
 	git diff -- one >patch &&
 	mv save-one one &&
-	echo d >>expect &&
+	echo "one text=auto" >.gitattributes &&
+	git apply patch &&
+	test_cmp one expect
+'
 
-	git apply --ignore-space-change --whitespace=fix patch &&
+test_expect_success 'CR-LF line endings && change line && text=auto' '
+	printf "a\r\n" >one &&
+	cp one save-one &&
+	git add one &&
+	printf "b\r\n" >one &&
+	cp one expect &&
+	git diff -- one >patch &&
+	mv save-one one &&
+	echo "one text=auto" >.gitattributes &&
+	git apply patch &&
+	test_cmp one expect
+'
+
+test_expect_success 'LF in repo, CRLF in worktree && change line && text=auto' '
+	printf "a\n" >one &&
+	git add one &&
+	printf "b\r\n" >one &&
+	git diff -- one >patch &&
+	printf "a\r\n" >one &&
+	echo "one text=auto" >.gitattributes &&
+	git -c core.eol=CRLF apply patch &&
+	printf "b\r\n" >expect &&
 	test_cmp one expect
 '
 
@@ -510,6 +530,17 @@ test_expect_success 'whitespace=fix to expand' '
 	 QQg
 	EOF
 	git -c core.whitespace=tab-in-indent apply --whitespace=fix patch
+'
+
+test_expect_success 'whitespace check skipped for excluded paths' '
+	git config core.whitespace blank-at-eol &&
+	>used &&
+	>unused &&
+	git add used unused &&
+	echo "used" >used &&
+	echo "unused " >unused &&
+	git diff-files -p used unused >patch &&
+	git apply --include=used --stat --whitespace=error <patch
 '
 
 test_done

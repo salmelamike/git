@@ -194,7 +194,7 @@ test_expect_success '--log=5 with custom comment character' '
 '
 
 test_expect_success 'merge.log=0 disables shortlog' '
-	echo "Merge branch ${apos}left${apos}" >expected
+	echo "Merge branch ${apos}left${apos}" >expected &&
 	git -c merge.log=0 fmt-merge-msg <.git/FETCH_HEAD >actual &&
 	test_cmp expected actual
 '
@@ -512,7 +512,7 @@ test_expect_success 'merge-msg with "merging" an annotated tag' '
 
 	test_when_finished "git reset --hard" &&
 	annote=$(git rev-parse annote) &&
-	git merge --no-commit $annote &&
+	git merge --no-commit --no-ff $annote &&
 	{
 		cat <<-EOF
 		Merge tag '\''$annote'\''

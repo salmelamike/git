@@ -1,7 +1,9 @@
-#!/bin/sh
-# git-mergetool--lib is a library for common merge tool functions
+# git-mergetool--lib is a shell library for common merge tool functions
 
 : ${MERGE_TOOLS_DIR=$(git --exec-path)/mergetools}
+
+IFS='
+'
 
 mode_ok () {
 	if diff_mode
@@ -93,16 +95,16 @@ translate_merge_tool_path () {
 check_unchanged () {
 	if test "$MERGED" -nt "$BACKUP"
 	then
-		status=0
+		return 0
 	else
 		while true
 		do
 			echo "$MERGED seems unchanged."
-			printf "Was the merge successful? [y/n] "
+			printf "Was the merge successful [y/n]? "
 			read answer || return 1
 			case "$answer" in
-			y*|Y*) status=0; break ;;
-			n*|N*) status=1; break ;;
+			y*|Y*) return 0 ;;
+			n*|N*) return 1 ;;
 			esac
 		done
 	fi
@@ -114,10 +116,23 @@ valid_tool () {
 	test -n "$cmd"
 }
 
+setup_user_tool () {
+	merge_tool_cmd=$(get_merge_tool_cmd "$tool")
+	test -n "$merge_tool_cmd" || return 1
+
+	diff_cmd () {
+		( eval $merge_tool_cmd )
+	}
+
+	merge_cmd () {
+		( eval $merge_tool_cmd )
+	}
+}
+
 setup_tool () {
 	tool="$1"
 
-	# Fallback definitions, to be overriden by tools.
+	# Fallback definitions, to be overridden by tools.
 	can_merge () {
 		return 0
 	}
@@ -127,30 +142,50 @@ setup_tool () {
 	}
 
 	diff_cmd () {
-		status=1
-		return $status
+		return 1
 	}
 
 	merge_cmd () {
-		status=1
-		return $status
+		return 1
 	}
 
 	translate_merge_tool_path () {
 		echo "$1"
 	}
 
+	# Most tools' exit codes cannot be trusted, so By default we ignore
+	# their exit code and check the merged file's modification time in
+	# check_unchanged() to determine whether or not the merge was
+	# successful.  The return value from run_merge_cmd, by default, is
+	# determined by check_unchanged().
+	#
+	# When a tool's exit code can be trusted then the return value from
+	# run_merge_cmd is simply the tool's exit code, and check_unchanged()
+	# is not called.
+	#
+	# The return value of exit_code_trustable() tells us whether or not we
+	# can trust the tool's exit code.
+	#
+	# User-defined and built-in tools default to false.
+	# Built-in tools advertise that their exit code is trustable by
+	# redefining exit_code_trustable() to true.
+
+	exit_code_trustable () {
+		false
+	}
+
+
 	if ! test -f "$MERGE_TOOLS_DIR/$tool"
 	then
-		# Use a special return code for this case since we want to
-		# source "defaults" even when an explicit tool path is
-		# configured since the user can use that to override the
-		# default path in the scriptlet.
-		return 2
+		setup_user_tool
+		return $?
 	fi
 
 	# Load the redefined functions
 	. "$MERGE_TOOLS_DIR/$tool"
+	# Now let the user override the default command for the tool.  If
+	# they have not done so then this will return 1 which we ignore.
+	setup_user_tool
 
 	if merge_mode && ! can_merge
 	then
@@ -175,6 +210,19 @@ get_merge_tool_cmd () {
 	fi
 }
 
+trust_exit_code () {
+	if git config --bool "mergetool.$1.trustExitCode"
+	then
+		:; # OK
+	elif exit_code_trustable
+	then
+		echo true
+	else
+		echo false
+	fi
+}
+
+
 # Entry point for running tools
 run_merge_tool () {
 	# If GIT_PREFIX is empty then we cannot use it in tools
@@ -184,23 +232,9 @@ run_merge_tool () {
 
 	merge_tool_path=$(get_merge_tool_path "$1") || exit
 	base_present="$2"
-	status=0
 
 	# Bring tool-specific functions into scope
-	setup_tool "$1"
-	exitcode=$?
-	case $exitcode in
-	0)
-		:
-		;;
-	2)
-		# The configured tool is not a built-in tool.
-		test -n "$merge_tool_path" || return 1
-		;;
-	*)
-		return $exitcode
-		;;
-	esac
+	setup_tool "$1" || return 1
 
 	if merge_mode
 	then
@@ -208,42 +242,23 @@ run_merge_tool () {
 	else
 		run_diff_cmd "$1"
 	fi
-	return $status
 }
 
 # Run a either a configured or built-in diff tool
 run_diff_cmd () {
-	merge_tool_cmd=$(get_merge_tool_cmd "$1")
-	if test -n "$merge_tool_cmd"
-	then
-		( eval $merge_tool_cmd )
-		status=$?
-		return $status
-	else
-		diff_cmd "$1"
-	fi
+	diff_cmd "$1"
 }
 
 # Run a either a configured or built-in merge tool
 run_merge_cmd () {
-	merge_tool_cmd=$(get_merge_tool_cmd "$1")
-	if test -n "$merge_tool_cmd"
+	mergetool_trust_exit_code=$(trust_exit_code "$1")
+	if test "$mergetool_trust_exit_code" = "true"
 	then
-		trust_exit_code=$(git config --bool \
-			"mergetool.$1.trustExitCode" || echo false)
-		if test "$trust_exit_code" = "false"
-		then
-			touch "$BACKUP"
-			( eval $merge_tool_cmd )
-			status=$?
-			check_unchanged
-		else
-			( eval $merge_tool_cmd )
-			status=$?
-		fi
-		return $status
-	else
 		merge_cmd "$1"
+	else
+		touch "$BACKUP"
+		merge_cmd "$1"
+		check_unchanged
 	fi
 }
 
@@ -262,7 +277,8 @@ list_merge_tool_candidates () {
 		else
 			tools="opendiff kdiff3 tkdiff xxdiff meld $tools"
 		fi
-		tools="$tools gvimdiff diffuse ecmerge p4merge araxis bc3 codecompare"
+		tools="$tools gvimdiff diffuse diffmerge ecmerge"
+		tools="$tools p4merge araxis bc codecompare"
 	fi
 	case "${VISUAL:-$EDITOR}" in
 	*vim*)
@@ -275,7 +291,7 @@ list_merge_tool_candidates () {
 }
 
 show_tool_help () {
-	tool_opt="'git ${TOOL_MODE}tool --tool-<tool>'"
+	tool_opt="'git ${TOOL_MODE}tool --tool=<tool>'"
 
 	tab='	'
 	LF='
@@ -323,6 +339,7 @@ guess_merge_tool () {
 	EOF
 
 	# Loop over each candidate and stop when a valid merge tool is found.
+	IFS=' '
 	for tool in $tools
 	do
 		is_available "$tool" && echo "$tool" && return 0
@@ -388,4 +405,29 @@ get_merge_tool () {
 		merge_tool=$(guess_merge_tool) || exit
 	fi
 	echo "$merge_tool"
+}
+
+mergetool_find_win32_cmd () {
+	executable=$1
+	sub_directory=$2
+
+	# Use $executable if it exists in $PATH
+	if type -p "$executable" >/dev/null 2>&1
+	then
+		printf '%s' "$executable"
+		return
+	fi
+
+	# Look for executable in the typical locations
+	for directory in $(env | grep -Ei '^PROGRAM(FILES(\(X86\))?|W6432)=' |
+		cut -d '=' -f 2- | sort -u)
+	do
+		if test -n "$directory" && test -x "$directory/$sub_directory/$executable"
+		then
+			printf '%s' "$directory/$sub_directory/$executable"
+			return
+		fi
+	done
+
+	printf '%s' "$executable"
 }
