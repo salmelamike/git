@@ -184,6 +184,7 @@ rm -rf $RPM_BUILD_ROOT
 %{!?_without_docs: %doc Documentation/*.html Documentation/docbook-xsl.css}
 %{!?_without_docs: %doc Documentation/howto Documentation/technical}
 %{_sysconfdir}/bash_completion.d
+%dir %{_bindir}/mergetools
 
 %files email
 %defattr(-,root,root)
